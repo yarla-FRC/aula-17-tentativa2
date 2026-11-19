@@ -1,7 +1,3 @@
-// AULA 17 - Robô Tank (Differential Drive) com SIMULAÇÃO
-// Projeto: WPILib > Create a new project > Template > Java > Timed Robot
-// Substitua o arquivo src/main/java/frc/robot/Robot.java por este.
-// Para simular: Ctrl+Shift+P > "WPILib: Simulate Robot Code" > marque "Sim GUI".
 
 package frc.robot;
 
