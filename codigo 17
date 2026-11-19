@@ -1,0 +1,143 @@
+// AULA 17 - Robô Tank (Differential Drive) com SIMULAÇÃO
+// Projeto: WPILib > Create a new project > Template > Java > Timed Robot
+// Substitua o arquivo src/main/java/frc/robot/Robot.java por este.
+// Para simular: Ctrl+Shift+P > "WPILib: Simulate Robot Code" > marque "Sim GUI".
+
+package frc.robot;
+
+import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.Encoder;
+import edu.wpi.first.wpilibj.RobotController;
+import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.motorcontrol.PWMSparkMax;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotGearing;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotMotor;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotWheelSize;
+import edu.wpi.first.wpilibj.simulation.EncoderSim;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+
+public class Robot extends TimedRobot {
+  // ===== MOTORES (portas PWM do roboRIO) =====
+  private final PWMSparkMax motorEsquerdo = new PWMSparkMax(0);
+  private final PWMSparkMax motorEsquerdoSeguidor = new PWMSparkMax(1);
+  private final PWMSparkMax motorDireito = new PWMSparkMax(2);
+  private final PWMSparkMax motorDireitoSeguidor = new PWMSparkMax(3);
+
+  // Tração diferencial (tank)
+  private final DifferentialDrive drive =
+      new DifferentialDrive(motorEsquerdo::set, motorDireito::set);
+
+  // Controle Xbox na porta 0 do Driver Station
+  private final XboxController controle = new XboxController(0);
+
+  // ===== ENCODERS (portas DIO) =====
+  private final Encoder encoderEsquerdo = new Encoder(0, 1);
+  private final Encoder encoderDireito = new Encoder(2, 3);
+
+  // Roda de 6 polegadas, encoder de 2048 pulsos por volta
+  private static final double RAIO_RODA_METROS = Units.inchesToMeters(3.0);
+  private static final double PULSOS_POR_VOLTA = 2048.0;
+
+  // Campo virtual que aparece na Sim GUI / Dashboard
+  private final Field2d campo = new Field2d();
+
+  private final Timer timer = new Timer();
+
+  // ===== SIMULAÇÃO =====
+  private DifferentialDrivetrainSim driveSim;
+  private EncoderSim encoderEsquerdoSim;
+  private EncoderSim encoderDireitoSim;
+
+  public Robot() {
+    // Seguidores copiam o motor líder de cada lado
+    motorEsquerdo.addFollower(motorEsquerdoSeguidor);
+    motorDireito.addFollower(motorDireitoSeguidor);
+
+    // Um dos lados precisa ser invertido para o robô andar reto
+    motorDireito.setInverted(true);
+
+    double distanciaPorPulso = (2 * Math.PI * RAIO_RODA_METROS) / PULSOS_POR_VOLTA;
+    encoderEsquerdo.setDistancePerPulse(distanciaPorPulso);
+    encoderDireito.setDistancePerPulse(distanciaPorPulso);
+
+    SmartDashboard.putData("Campo", campo);
+  }
+
+  @Override
+  public void robotPeriodic() {
+    SmartDashboard.putNumber("Distancia Esquerda (m)", encoderEsquerdo.getDistance());
+    SmartDashboard.putNumber("Distancia Direita (m)", encoderDireito.getDistance());
+    SmartDashboard.putNumber("Motor Esquerdo", motorEsquerdo.get());
+    SmartDashboard.putNumber("Motor Direito", motorDireito.get());
+  }
+
+  // ===== AUTÔNOMO: anda para frente, gira e para =====
+  @Override
+  public void autonomousInit() {
+    timer.restart();
+  }
+
+  @Override
+  public void autonomousPeriodic() {
+    double tempo = timer.get();
+
+    if (tempo < 2.0) {
+      drive.tankDrive(0.5, 0.5); // frente
+    } else if (tempo < 3.0) {
+      drive.tankDrive(0.4, -0.4); // gira para a direita
+    } else if (tempo < 5.0) {
+      drive.tankDrive(0.5, 0.5); // frente de novo
+    } else {
+      drive.stopMotor();
+    }
+  }
+
+  // ===== TELEOPERADO: tank drive =====
+  @Override
+  public void teleopPeriodic() {
+    // Analógico esquerdo controla o lado esquerdo, analógico direito o lado direito.
+    // O eixo Y do controle é negativo para frente, por isso o sinal de menos.
+    drive.tankDrive(-controle.getLeftY(), -controle.getRightY());
+  }
+
+  @Override
+  public void disabledInit() {
+    drive.stopMotor();
+  }
+
+  // ===== SIMULAÇÃO =====
+  @Override
+  public void simulationInit() {
+    // Modelo pronto do Kitbot: 2 CIMs por lado, redução 10.71:1, roda de 6"
+    driveSim =
+        DifferentialDrivetrainSim.createKitbotSim(
+            KitbotMotor.kDualCIMPerSide, KitbotGearing.k10p71, KitbotWheelSize.kSixInch, null);
+
+    encoderEsquerdoSim = new EncoderSim(encoderEsquerdo);
+    encoderDireitoSim = new EncoderSim(encoderDireito);
+  }
+
+  @Override
+  public void simulationPeriodic() {
+    // 1) Envia a tensão dos motores para o modelo
+    double bateria = RobotController.getInputVoltage();
+    driveSim.setInputs(motorEsquerdo.get() * bateria, motorDireito.get() * bateria);
+
+    // 2) Avança a simulação em 20 ms
+    driveSim.update(0.02);
+
+    // 3) Atualiza os encoders simulados
+    encoderEsquerdoSim.setDistance(driveSim.getLeftPositionMeters());
+    encoderEsquerdoSim.setRate(driveSim.getLeftVelocityMetersPerSecond());
+    encoderDireitoSim.setDistance(driveSim.getRightPositionMeters());
+    encoderDireitoSim.setRate(driveSim.getRightVelocityMetersPerSecond());
+
+    // 4) Mostra o robô no campo virtual
+    campo.setRobotPose(driveSim.getPose());
+  }
+}
